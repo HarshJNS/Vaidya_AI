@@ -458,20 +458,30 @@ export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Sc
             </button>
             <div className="block">
               <div className="section-lbl">Quick ask</div>
+              <div className="quick-icons" aria-hidden="true">
+                <span>🌿</span>
+                <span>💊</span>
+                <span>🥗</span>
+                <span>🩺</span>
+              </div>
               <div className="quick-grid">
                 <button className="card" onClick={() => quickAsk('remedies')}>
+                  <span className="quick-card-icon">🌿</span>
                   <b>Remedies</b>
                   <span>Ayurvedic solutions</span>
                 </button>
                 <button className="card" onClick={() => quickAsk('medicines')}>
+                  <span className="quick-card-icon">💊</span>
                   <b>Medicines</b>
                   <span>Check interactions</span>
                 </button>
                 <button className="card" onClick={() => quickAsk('diet')}>
+                  <span className="quick-card-icon">🥗</span>
                   <b>Diet & food</b>
                   <span>What to eat / avoid</span>
                 </button>
                 <button className="card" onClick={() => quickAsk('default')}>
+                  <span className="quick-card-icon">🩺</span>
                   <b>Symptoms</b>
                   <span>What does this mean</span>
                 </button>
