@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
+import { hasSupabaseConfig } from './auth'
 
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'public-anon-key',
-)
+export const isSupabaseConfigured = hasSupabaseConfig()
+
+export const supabase = isSupabaseConfigured
+  ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  : null

@@ -12,6 +12,7 @@ export default function LoginPage() {
   const router = useRouter()
 
   async function sendOTP() {
+    if (!supabase) return
     setLoading(true)
     const { error } = await supabase.auth.signInWithOtp({ phone: `+91${phone}` })
     if (!error) setStep('otp')
@@ -19,6 +20,7 @@ export default function LoginPage() {
   }
 
   async function verifyOTP() {
+    if (!supabase) return
     setLoading(true)
     const { error } = await supabase.auth.verifyOtp({ phone: `+91${phone}`, token: otp, type: 'sms' })
     if (!error) router.push('/')
@@ -44,7 +46,7 @@ export default function LoginPage() {
             </label>
             <button
               onClick={sendOTP}
-              disabled={phone.length !== 10 || loading}
+              disabled={!supabase || phone.length !== 10 || loading}
               className="focus-ring rounded-md bg-vaidya-teal px-4 py-3 font-semibold text-vaidya-bg disabled:opacity-50"
             >
               {loading ? 'Sending...' : 'Send OTP'}
@@ -64,7 +66,7 @@ export default function LoginPage() {
             </label>
             <button
               onClick={verifyOTP}
-              disabled={otp.length !== 6 || loading}
+              disabled={!supabase || otp.length !== 6 || loading}
               className="focus-ring rounded-md bg-vaidya-teal px-4 py-3 font-semibold text-vaidya-bg disabled:opacity-50"
             >
               {loading ? 'Verifying...' : 'Verify & Enter'}

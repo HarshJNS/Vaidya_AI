@@ -669,6 +669,17 @@ textarea.input-field {
   padding: 20px;
 }
 
+.login-warning {
+  background: var(--amber-bg);
+  border: 0.5px solid rgba(186, 117, 23, 0.25);
+  border-radius: 12px;
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+}
+
 #toast {
   position: fixed;
   bottom: 100px;

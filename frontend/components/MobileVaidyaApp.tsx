@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { getProtectedInitialScreen, normalizeIndianPhone } from '@/lib/auth'
+import { supabase } from '@/lib/supabase'
 
 type Screen = 'login' | 'home' | 'chat' | 'family' | 'profile' | 'emergency' | 'settings' | 'admin'
 type Lang = 'en' | 'hi'
@@ -193,13 +195,16 @@ function Pill({ children, tone = 'teal' }: { children: React.ReactNode; tone?: '
 }
 
 export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Screen }) {
-  const [screen, setScreen] = useState<Screen>(initialScreen)
+  const targetScreen = useRef<Screen>(initialScreen === 'login' ? 'home' : initialScreen)
+  const [screen, setScreen] = useState<Screen>('login')
   const [stack, setStack] = useState<Screen[]>([])
   const [lang, setLang] = useState<Lang>('en')
   const [toast, setToast] = useState('')
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState('')
   const [loginStep, setLoginStep] = useState<'phone' | 'otp'>('phone')
+  const [authChecking, setAuthChecking] = useState(true)
+  const [authLoading, setAuthLoading] = useState(false)
   const [selectedMember, setSelectedMember] = useState<MemberKey>('papa')
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
@@ -222,6 +227,32 @@ export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Sc
     tick()
     const id = window.setInterval(tick, 1000)
     return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    if (!supabase) {
+      setAuthChecking(false)
+      setScreen('login')
+      return
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return
+      setScreen(getProtectedInitialScreen(targetScreen.current, Boolean(data.session)))
+      setAuthChecking(false)
+    })
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setScreen(getProtectedInitialScreen(targetScreen.current, Boolean(session)))
+      setStack([])
+      setAuthChecking(false)
+    })
+
+    return () => {
+      active = false
+      data.subscription.unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -255,6 +286,62 @@ export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Sc
       setScreen(previous)
       return next
     })
+  }
+
+  async function sendOtp() {
+    const formattedPhone = normalizeIndianPhone(phone)
+    if (!formattedPhone) {
+      showToast('Enter a valid 10-digit number')
+      return
+    }
+    if (!supabase) {
+      showToast('Supabase OTP is not configured yet')
+      return
+    }
+
+    setAuthLoading(true)
+    const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone })
+    setAuthLoading(false)
+
+    if (error) {
+      showToast(error.message)
+      return
+    }
+
+    setLoginStep('otp')
+    showToast(`OTP sent to ${formattedPhone}`)
+  }
+
+  async function verifyOtp() {
+    const formattedPhone = normalizeIndianPhone(phone)
+    if (!formattedPhone || otp.length !== 6) return
+    if (!supabase) {
+      showToast('Supabase OTP is not configured yet')
+      return
+    }
+
+    setAuthLoading(true)
+    const { error } = await supabase.auth.verifyOtp({ phone: formattedPhone, token: otp, type: 'sms' })
+    setAuthLoading(false)
+
+    if (error) {
+      showToast(error.message)
+      return
+    }
+
+    setOtp('')
+    setStack([])
+    setScreen(targetScreen.current)
+    showToast('Welcome to Vaidya!')
+  }
+
+  async function signOut() {
+    if (supabase) await supabase.auth.signOut()
+    setOtp('')
+    setStack([])
+    setLoginStep('phone')
+    setScreen('login')
+    showToast('Signed out')
   }
 
   function toggleLang() {
@@ -375,6 +462,8 @@ export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Sc
               <p>परिवार का स्वास्थ्य सहायक</p>
               <small>Family health assistant</small>
             </div>
+            {authChecking ? <p className="login-note">Checking secure login...</p> : null}
+            {!supabase ? <p className="login-warning">Supabase OTP is not configured yet.</p> : null}
             {loginStep === 'phone' ? (
               <div>
                 <label className="form-label">Mobile number</label>
@@ -391,13 +480,10 @@ export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Sc
                 </div>
                 <button
                   className="btn-primary"
-                  disabled={phone.length !== 10}
-                  onClick={() => {
-                    setLoginStep('otp')
-                    showToast(`OTP sent to +91 ${phone}`)
-                  }}
+                  disabled={!supabase || authChecking || authLoading || phone.length !== 10}
+                  onClick={sendOtp}
                 >
-                  Send OTP
+                  {authLoading ? 'Sending...' : 'Send OTP'}
                 </button>
                 <p className="login-note">Only family members can access Vaidya</p>
               </div>
@@ -415,13 +501,10 @@ export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Sc
                 />
                 <button
                   className="btn-primary"
-                  disabled={otp.length !== 6}
-                  onClick={() => {
-                    showToast('Welcome to Vaidya!')
-                    setScreen('home')
-                  }}
+                  disabled={!supabase || authLoading || otp.length !== 6}
+                  onClick={verifyOtp}
                 >
-                  Verify & Enter
+                  {authLoading ? 'Verifying...' : 'Verify & Enter'}
                 </button>
                 <button className="btn-ghost" onClick={() => setLoginStep('phone')}>
                   Change number
@@ -690,7 +773,7 @@ export function MobileVaidyaApp({ initialScreen = 'home' }: { initialScreen?: Sc
             <button className="card setting red-text" onClick={() => navigate('emergency')}>Emergency contacts & info</button>
             <div className="card setting"><span><b>About Vaidya</b><small>Private family health assistant. Always consult your doctor for serious health decisions.</small></span></div>
             <button className="card setting teal-text" onClick={() => navigate('admin')}>Admin dashboard</button>
-            <button className="btn-ghost" onClick={() => setScreen('login')}>Sign out</button>
+            <button className="btn-ghost" onClick={signOut}>Sign out</button>
           </div>
           <BottomNav screen={screen} navigate={navigate} />
         </section>
@@ -808,7 +891,7 @@ button{cursor:pointer}
 .member-row{display:flex;align-items:center;gap:12px;padding:12px 20px;border:0;border-bottom:.5px solid var(--border);background:transparent;width:100%;text-align:left;color:var(--text)}.member-info{flex:1;min-width:0}.member-name{font-size:14px;font-weight:500}.member-sub{font-size:11px;color:var(--text2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pill-row,.chip-row{margin-top:5px;display:flex;gap:5px;flex-wrap:wrap}.row-chev{font-size:20px;color:var(--text3)}.admin-tag{font-size:9px;color:var(--teal);background:var(--teal-bg);padding:1px 6px;border-radius:8px;margin-left:4px}
 .profile-hero{background:var(--bg2);padding:20px;border-bottom:.5px solid var(--border);display:flex;gap:14px;align-items:center}.profile-hero h2{font-size:18px;margin:0}.profile-hero p{font-size:12px;color:var(--text2);margin:2px 0 6px}.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 20px}.stat-box{background:rgba(255,255,255,.04);border:.5px solid var(--border);border-radius:12px;padding:10px;text-align:center}.stat-box b{font-size:17px}.stat-box span{display:block;font-size:9px;color:var(--text3);margin-top:3px}.detail-section{padding:14px 20px 0}.detail-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:.5px solid var(--border);font-size:12px}.detail-row span{color:var(--text2)}.med{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.muted{color:var(--text3);font-size:12px}.insight{margin:16px 20px;background:rgba(29,158,117,.07);border:.5px solid var(--teal-bd);border-radius:14px;padding:14px}.insight b{font-size:10px;color:var(--teal)}.insight p{font-size:12px;color:var(--text);line-height:1.65}.insight small{font-size:10px;color:var(--text3)}.profile-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 20px 28px}.profile-actions button{background:var(--teal-bg);border:.5px solid var(--teal-bd);border-radius:12px;padding:12px;color:var(--teal);font-size:12px;font-weight:500}
 .emergency-screen,.settings-list,.admin-screen{padding:20px}.danger-card{background:var(--red-bg);border:.5px solid var(--red-bd);border-radius:16px;padding:20px;text-align:center}.danger-icon{width:38px;height:38px;border-radius:50%;border:1px solid var(--red);display:grid;place-items:center;margin:0 auto 10px;color:var(--red);font-weight:700}.danger-card h2{font-size:16px;color:var(--red)}.danger-card p{font-size:13px;color:var(--text2)}.call-main,.call-alt{display:block;text-align:center;text-decoration:none;border-radius:14px;font-weight:700;margin-top:10px}.call-main{padding:18px;background:#7A1010;border:.5px solid var(--red-bd);color:var(--red)}.call-alt{padding:15px;background:rgba(255,255,255,.04);border:.5px solid var(--border2);color:var(--text)}.emergency-item{margin-top:8px}.emergency-item b{display:block;color:var(--red);font-size:12px}.emergency-item span{font-size:11px;color:var(--text2)}
-.setting{width:100%;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}.setting b{display:block;font-size:13px}.setting small{display:block;font-size:11px;color:var(--text2);margin-top:2px;line-height:1.6}.red-text{color:var(--red)}.teal-text{color:var(--teal)}.btn-primary,.btn-ghost{width:100%;border-radius:14px;font-weight:600}.btn-primary{padding:15px;background:var(--teal-dk);border:0;color:var(--teal);margin-top:8px}.btn-primary:disabled{opacity:.35}.btn-ghost{padding:12px;background:transparent;border:.5px solid var(--border2);color:var(--text2);margin-top:10px}.login-scroll{padding:40px 24px}.login-brand{margin-bottom:48px}.brand-icon{width:52px;height:52px;background:var(--teal-dk);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;color:var(--teal);font-size:26px}.login-brand h1{font-size:28px;margin:0}.login-brand p{color:var(--text2);font-size:14px;margin:4px 0 0}.login-brand small{color:var(--text3);font-size:12px}.form-label{font-size:11px;color:var(--text2);font-weight:500;margin-bottom:6px;display:block}.phone-row{display:flex;align-items:center;gap:8px}.country{background:rgba(255,255,255,.05);border:.5px solid var(--border2);border-radius:12px;padding:13px 14px;color:var(--text2);font-size:14px}.login-note{color:var(--text3);font-size:11px;text-align:center;margin-top:16px}.otp-text{color:var(--text2);font-size:13px;margin-bottom:20px}.otp-input{text-align:center;letter-spacing:8px;font-size:22px}
+.setting{width:100%;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}.setting b{display:block;font-size:13px}.setting small{display:block;font-size:11px;color:var(--text2);margin-top:2px;line-height:1.6}.red-text{color:var(--red)}.teal-text{color:var(--teal)}.btn-primary,.btn-ghost{width:100%;border-radius:14px;font-weight:600}.btn-primary{padding:15px;background:var(--teal-dk);border:0;color:var(--teal);margin-top:8px}.btn-primary:disabled{opacity:.35}.btn-ghost{padding:12px;background:transparent;border:.5px solid var(--border2);color:var(--text2);margin-top:10px}.login-scroll{padding:40px 24px}.login-brand{margin-bottom:48px}.brand-icon{width:52px;height:52px;background:var(--teal-dk);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;color:var(--teal);font-size:26px}.login-brand h1{font-size:28px;margin:0}.login-brand p{color:var(--text2);font-size:14px;margin:4px 0 0}.login-brand small{color:var(--text3);font-size:12px}.form-label{font-size:11px;color:var(--text2);font-weight:500;margin-bottom:6px;display:block}.phone-row{display:flex;align-items:center;gap:8px}.country{background:rgba(255,255,255,.05);border:.5px solid var(--border2);border-radius:12px;padding:13px 14px;color:var(--text2);font-size:14px}.login-note{color:var(--text3);font-size:11px;text-align:center;margin-top:16px}.login-warning{background:var(--amber-bg);border:.5px solid rgba(186,117,23,.25);border-radius:12px;color:var(--amber);font-size:12px;line-height:1.5;margin:0 0 16px;padding:10px 12px}.otp-text{color:var(--text2);font-size:13px;margin-bottom:20px}.otp-input{text-align:center;letter-spacing:8px;font-size:22px}
 .admin-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}.admin-stats div{background:rgba(255,255,255,.04);border:.5px solid var(--border);border-radius:12px;padding:14px;text-align:center}.admin-stats b{font-size:24px}.admin-stats span{display:block;font-size:10px;color:var(--text3);margin-top:3px}.admin-row{width:100%;display:flex;align-items:center;gap:10px;margin-bottom:8px}.admin-row span:nth-child(2){flex:1}.admin-row b{display:block;font-size:13px}.admin-row small{display:block;font-size:10px;color:var(--text2);margin-top:2px}.flag{background:rgba(255,255,255,.03);border:.5px solid var(--border);border-radius:12px;padding:12px;margin-top:8px}.flag.red-flag{background:var(--red-bg);border-color:var(--red-bd)}.flag b{display:block;font-size:11px;color:var(--text)}.red-flag b{color:var(--red)}.flag span{display:block;font-size:11px;color:var(--text2);margin-top:4px;line-height:1.5}
 #toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1d27;border:.5px solid var(--teal-bd);color:var(--teal);padding:10px 18px;border-radius:20px;font-size:12px;font-weight:500;opacity:0;transition:all .25s;z-index:999;white-space:nowrap}#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 `
